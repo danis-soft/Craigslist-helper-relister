@@ -1,0 +1,7 @@
+/.vscode
+/build
+/package.json
+/webpack_install_package_builder.cmd
+/unused
+/webpack_dist
+/node_modules

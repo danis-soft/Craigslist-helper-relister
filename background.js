@@ -5,13 +5,6 @@ var DEBUG = true;
 var oCommonDefs = require("./js/common_defs.js");
 var oCommonStorage = require("./js/common_storage.js");
 
-/*https://www.expedia.com/Hotel-Search?packageType=fh&c=ee60d470-ee37-4ce7-a390-037744e15422&ttla=CUN&
-ftla=SFO&tripType=ROUND_TRIP&origin=San+Francisco,+CA,+United+States+of+America+(SFO-San+Francisco+Intl.)
-&destination=Riviera+Maya&startDate=7/3/2019&endDate=7/11/2019&checkInDate=7/3/2019&checkOutDate=7/11/2019
-&adults=2&children=1_5&infantsInSeats=0&cabinClass=e&regionId=602901
-&hotelName=barcelo
-&lodging=allInclusive&sort=recommended*/
-
 
 function checkURLAndDisable(tabId, changeInfo, tab)
 {
@@ -76,17 +69,6 @@ function checkForValidUrl(tabId, changeInfo, tab) {
     console.log(sURL);
 
 
-  //  var sUrl = window.location.href.toString();
-//   var sUrl = window.location.host;
-// //  console.log(sUrl);
-//
-//   if( sUrl == "www.expedia.com" > -1)
-//   {
-//        chrome.pageAction.show(tabId);
-
-//        chrome.tabs.executeScript(tab.id, {file: "content_script.js"});
-//    }
-
    chrome.tabs.query({
     active: true,
     currentWindow: true
@@ -128,29 +110,6 @@ function sendMessageToActiveTab(tabsId, eMsgType, eMsgOrigin, eMsgDest, sParam, 
         //sendMessage(message_origin.POPUP, eMsgDest, sSubject, sParam, funcCallback); 
 }
 
-// const message_type = {
-//   RENEW: "renew_listing"
-// };
-
-// const message_origin = {
-//   POPUP : "popup",
-//   BACKGROUND: "background",
-//   CONTENT: "content_script"
-// };
-
-// const message_destination = 
-// {
-//   CONTENT: "content",
-//   BACKGROUND: "background"
-// }
-
-
-// chrome.pageAction.onClicked.addListener(function(tab) {
-
-// 	   chrome.tabs.executeScript(tab.id, {file: "content_script.js"});
-
-//    });
-
 chrome.runtime.onMessage.addListener(
   async function(request, sender, sendResponse) {
 
@@ -167,7 +126,7 @@ chrome.runtime.onMessage.addListener(
       {
         if(request.type  === oCommonDefs.message_type.CLEAR_NEVER_SHOW_LISTINGS )
         {
-            SyncStorage.remove(KEY_NEVERSHOW_LISTINGS);
+            oCommonStorage.SyncStorage.remove(oCommonDefs.STORAGE_KEYS.KEY_NEVERSHOW_LISTINGS);
         }
         else if( request.type === oCommonDefs.message_type.RESET_AND_INTERRUPT_POSTER){
           interruptPostingProcess();
@@ -220,7 +179,7 @@ chrome.runtime.onMessage.addListener(
 
             oRenewData = { dateCreated: Date.now(), dateAccessed: Date.now(), data: request.value.payload.renew};
 
-            oCommonStorage.SyncStorage.save(KEY_ALL_LISTINGS, oRenewData).then(()=>
+            oCommonStorage.SyncStorage.save(oCommonDefs.STORAGE_KEYS.KEY_ALL_LISTINGS, oRenewData).then(()=>
             {
 
               if( DEBUG )
@@ -242,7 +201,7 @@ chrome.runtime.onMessage.addListener(
       else if( request.from === oCommonDefs.message_origin.CONTENT &&
         request.type  === oCommonDefs.message_type.FINISHED )
         {
-          oCommonStorage.SyncStorage.get(KEY_ALL_LISTINGS).then((oData)=>
+          oCommonStorage.SyncStorage.get(oCommonDefs.STORAGE_KEYS.KEY_ALL_LISTINGS).then((oData)=>
           {
             if( oData != null &&
               oData.data.length > 1)
@@ -342,11 +301,32 @@ chrome.runtime.onMessage.addListener(
 });
 
 
+// function saveDataPromise(sKey, oValue) {
+//     return new Promise((resolve, reject)=>{
+//         // Check that there's some code there.
+//         if (!oValue) {
+//             reject('Error: No value specified');
+          
+//         }
+
+//         var o = new Object();
+//         o[sKey] = oValue;
+
+//         // Save it using the Chrome extension storage API.
+//         chrome.storage.local.set(o, function () {
+//             // Notify that we saved.
+//             console.log("We have saved all the settings!!! WohOOO");
+//             resolve('Settings saved');
+//         });
+//   });
+// }//save function
+
+
 async function saveNeverShowData(oNewNeverShowData, bExisting)
 {
   
   var oNeverShowData = null;
-  oNeverShowData =  await oCommonStorage.SyncStorage.get(oCommonDefs.KEY_NEVERSHOW_LISTINGS);
+  oNeverShowData =  await oCommonStorage.SyncStorage.get(oCommonDefs.STORAGE_KEYS.KEY_NEVERSHOW_LISTINGS);
 
   if( isVariableNotNull(oNewNeverShowData) && oNewNeverShowData.length > 0 )
   {
@@ -364,7 +344,7 @@ async function saveNeverShowData(oNewNeverShowData, bExisting)
       oNeverShowData = { dateCreated: Date.now(), dateAccessed: Date.now(), data: oNewNeverShowData};
     }
 
-    oCommonStorage.SyncStorage.save(oCommonDefs.KEY_NEVERSHOW_LISTINGS, oNeverShowData).then(()=>
+    oCommonStorage.SyncStorage.save(oCommonDefs.STORAGE_KEYS.KEY_NEVERSHOW_LISTINGS, oNeverShowData).then(()=>
       {
         console.log("Stored never show listings data");
       }
@@ -407,6 +387,6 @@ function interruptPostingProcess()
 {
 
   console.log("Deleting KEY_ALL_LISTINGS and KEY_CURRENT_LISTING");
-  Promise.allSettled([oCommonStorage.SyncStorage.remove(oCommonDefs.KEY_ALL_LISTINGS), oCommonStorage.SyncStorage.remove(oCommonDefs.KEY_CURRENT_LISTING)]);
+  Promise.allSettled([oCommonStorage.SyncStorage.remove(oCommonDefs.STORAGE_KEYS.KEY_ALL_LISTINGS), oCommonStorage.SyncStorage.remove(oCommonDefs.STORAGE_KEYS.KEY_CURRENT_LISTING)]);
 
 }

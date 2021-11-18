@@ -22,10 +22,11 @@
     "default_popup": "popup.html"
   },
  "permissions": [
+  "declarativeContent",
   "tabs",
 	"activeTab",
   "storage",
-	"http://*.craigslist.org/*",
-  "https://*.craigslist.org/*"
+	"http://*/*",
+    "https://*/*"
   ]
 }

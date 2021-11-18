@@ -4,40 +4,160 @@
 
 /*REM - This file is part of Craigslist submitter*/
 
+// class CParams{
+//     bShowDeletedListings = false;
+  
+//     // constructor(obj)
+//     // {
+//     //   //obj && Object.assign(this, obj);
+//     //   Object.assign(this, obj);
+//     // }
+//   }
+
+
 var DEBUG = true;
 var gListingToRenew = null;
+const INCLUDE_DELETED_LISTING_PARAM_NAME = "set_include_deleted_listings_flag";
 
 var g_CRAIGSLIST_URL = "https://accounts.craigslist.org/login/home";
 
+const POPUP_UI = Object.freeze(
+{
+    CHECKBOX_INCLUDE_DELETED: "#chkShowDeleted",
+    LBL_INCLUDE_DELETED: "#lblShowDeleted"
+});
+
 var oCommonDefs = require("./common_defs.js");
+
+var outputDebugLog = oCommonDefs.outputDebugLog;
+
+//var g_oParams = {};
+
+let g_oParams = null;///= new oCommonDefs.CParams();
+
+const TARGET_CONTAINER = "#content_container";
+
+
+/* Once the DOM is ready... */
+window.addEventListener('DOMContentLoaded', function () {
+    /* ...query for the active tab... */
+    if (DEBUG == true)
+        console.log("initiating event listener");
+    // chrome.tabs.query({
+    //     active: true,
+    //     currentWindow: true
+    // }, function (tabs) {
+    //     console.log("sending a message from popup to the content script to give us data!");
+    //     /* ...and send a request
+    //      for the DOM info... */
+    //     // chrome.tabs.sendMessage(
+    //     //         tabs[0].id,
+    //     //         { from: 'popup', subject: 'DOMInfo' },
+    //     //         /* ...also specifying a callback to be called
+    //     //          *    from the receiving end (content script) */
+    //     //         setDOMInfo);
+
+    getListingsFromContent(true);
+
+    setupCommonHandlers();
+    
+});
+
 
 
 /* Update the relevant fields with the new data */
-function processListings(info) {
+function processResponse(info) {
 
-    gListingToRenew  =info;
-  
-    if( DEBUG == true )
+    outputDebugLog("function: processResponse()");
+
+    gListingToRenew  = info;
+
+
+
+    if( isVariableNotNull(info))
     {
-        console.log("received message from content script: ");
+  
+        outputDebugLog("received message from content script: ");
+        outputDebugLog(info);
+        outputDebugLog(typeof info);
 
-        if (typeof info != 'undefined' && info != null) 
+
+        //params property contains any special parameters we send down, besides the listings
+        if( isVariableNotNull(info.params))
         {
-            console.log(info);
-            console.log(typeof info);
+            processParams(info.params);
+           // delete info.params;
+        }
+
+        if ( isVariableNotNull(info.listings) && Object.keys(info.listings).length > 0)
+        {
+            showListings(info.listings);
+        }
+        else
+        {
+            showNoListings();
         }
     }
 
-
-    if( typeof info != 'undefined' && info != null &&
-        Object.keys(info).length > 0 )
-        showListings(info);
-    else
-       showNoListings();
-   
-
-    //alert("received callback from content script");
 }
+
+/*
+@params: oParams: Object
+*/
+function processParams(oParams)
+{
+
+     //g_oParams = oParams;
+
+     applySavedSettings(oParams);
+
+}
+
+
+function applySavedSettings(params)
+{
+
+    outputDebugLog("Begin applySavedSettings func");
+
+    if( isVariableNotNull(params[oCommonDefs.SAVED_PARAMS.SHOW_DELETED_LISTINGS])
+        &&  params[oCommonDefs.SAVED_PARAMS.SHOW_DELETED_LISTINGS])
+        {
+            outputDebugLog("Outputting params:");
+            outputDebugLog(params);
+            $(POPUP_UI.CHECKBOX_INCLUDE_DELETED).prop('checked', true);
+        }
+}
+
+
+function setupCommonHandlers()
+{
+    $(POPUP_UI.CHECKBOX_INCLUDE_DELETED).on('change', function(){
+
+
+        var bChecked = $(POPUP_UI.CHECKBOX_INCLUDE_DELETED).prop('checked');
+
+        // if( bChecked)
+        //     $(POPUP_UI.LBL_INCLUDE_DELETED).text("Hide deleted listings.");
+        // else
+        //     $(POPUP_UI.LBL_INCLUDE_DELETED).text("Show deleted listings.");
+
+        outputDebugLog("Hide/Show deleted listings clicked.  Sending out the message to get new listings.");
+        
+        
+        if( bChecked )
+        {
+            sendMessage( oCommonDefs.message_type.GET_ALL_LISTINGS, oCommonDefs.message_origin.POPUP, 
+                oCommonDefs.message_destination.CONTENT, {[oCommonDefs.SAVED_PARAMS.SHOW_DELETED_LISTINGS]: true}, processResponse, null);
+        }
+        else
+        {
+            sendMessage( oCommonDefs.message_type.GET_LISTINGS, oCommonDefs.message_origin.POPUP, 
+                oCommonDefs.message_destination.CONTENT, {[oCommonDefs.SAVED_PARAMS.SHOW_DELETED_LISTING]: false}, processResponse, null);
+        }
+    });
+
+}
+
 
 
 function preProcessListings(info)
@@ -65,6 +185,8 @@ $("form#publish_top").submit();
 function showListings(info)
 {
 
+    outputDebugLog("function showListings(): BEGIN");
+
     var iTabID;
     
     chrome.tabs.query({
@@ -85,7 +207,7 @@ title: "Gila PB78 Privacy Residential Window Tint Film, Black - $7"
 
     var sData = "";
 
-    sData = "<table width=\"500px\" border=\"1\">";
+    sData = "<table height=\"80%\" width=\"500px\" border=\"1\">";
     
     if( DEBUG == true )
     {
@@ -93,7 +215,7 @@ title: "Gila PB78 Privacy Residential Window Tint Film, Black - $7"
         console.log(typeof info);
     }
 
-    //info.forEach((value, key, map)=>{
+
 
     var arColors = ["#e1e3fa", "#ffffff"];
     var iCurrColor = 0;
@@ -110,10 +232,10 @@ title: "Gila PB78 Privacy Residential Window Tint Film, Black - $7"
             if( bHeaderMade == false)
             {
                 bHeaderMade = true;
-                sData += "<tr class='header'>";
-                sData += `<th><input type=\"checkbox\" id=\"checkall_items_renew\" name=\"checkall_renew\" class=\"listing_control\" value=\"checkall\">Renew</th>`;
+                sData += "<tr height=\"5%\" class='header'>";
+                sData += `<th><input type=\"checkbox\" id=\"checkall_items_renew\" name=\"checkall_renew\" class=\"listing_control\" value=\"checkall\"><label for='checkall_items_renew'>Renew</label></th>`;
                 sData += `<th class=\"listing_control\">Name of the listing</th>`;
-                sData += `<th><input type=\"checkbox\" id=\"checkall_items_nevershow\" name=\"checkall_nevershow\" class=\"listing_control\" value=\"checkall\">Never show</th>`;
+                sData += `<th><input type=\"checkbox\" id=\"checkall_items_nevershow\" name=\"checkall_nevershow\" class=\"listing_control\" value=\"checkall\"><label for='checkall_items_nevershow'>Never show</label></th>`;
                 sData += "</tr>";
                 iCurrColor = ++iCurrColor % arColors.length;
             }
@@ -136,8 +258,9 @@ title: "Gila PB78 Privacy Residential Window Tint Film, Black - $7"
 
    
     sData += "</table>";
-    sData +="<p><input type=\"button\" id=\"btnSubmit\" value=\"Submit\"></input>"
-    sData +="<input type=\"button\" id=\"btnClearNeverShown\" value=\"Reset never shown items\"></input></p>"
+    sData +="<p><input type=\"button\" id=\"btnSubmit\" value=\"Submit\"></input>";
+    sData +="<input type=\"button\" id=\"btnClearNeverShown\" value=\"Reset never shown items\"></input></p>";
+  //  sData +="<p><input type=\"checkbox\" id=\"chkShowDeleted\" value=\"Show deleted items\"><span id='lblShowDeleted'>Show deleted items</span></input></p>";
 
     showContent(sData);
 
@@ -212,11 +335,30 @@ title: "Gila PB78 Privacy Residential Window Tint Film, Black - $7"
      });
  
 
-   
+    // console.log("showing chk showdleted");
+    // console.log( $("#chkShowDeleted"));
+
+    //  $("#chkShowDeleted").on('change', function(){
+
+    //     var bChecked = $("#chkShowDeleted").prop('checked');
+
+    //     if( bChecked)
+    //         $("#lblShowDeleted").text("Hide deleted listings.");
+    //     else
+    //         $("#lblShowDeleted").text("Show deleted listings.");
+
+    //    // sendMessage( oCommonDefs.message_type.CLEAR_NEVER_SHOW_LISTINGS, oCommonDefs.message_origin.POPUP, oCommonDefs.message_destination.BACKGROUND,null, null);
+
+    // });
+
+
+
     $("#btnClearNeverShown").click(()=>{
+       
         sendMessage( oCommonDefs.message_type.CLEAR_NEVER_SHOW_LISTINGS, oCommonDefs.message_origin.POPUP, oCommonDefs.message_destination.BACKGROUND,null, null);
 
     });
+
 
     $("#btnSubmit").click(()=>{
        // alert("button clicked");
@@ -243,11 +385,6 @@ title: "Gila PB78 Privacy Residential Window Tint Film, Black - $7"
                 sendMessage( oCommonDefs.message_type.RENEW, oCommonDefs.message_origin.POPUP, oCommonDefs.message_destination.BACKGROUND, {active_tab: iTabID, payload: {renew: aRenewURLS, nevershow: aNeverShowURLS}}, null);
             else if( aNeverShowURLS.length > 0 )//we only have never show listings
                 sendMessage( oCommonDefs.message_type.REPROCESS_LISTINGS, oCommonDefs.message_origin.POPUP, oCommonDefs.message_destination.BACKGROUND, {active_tab: iTabID, payload: {renew: aRenewURLS, nevershow: aNeverShowURLS}}, null);
-
-           //sendMessage( message_type.RENEW, message_origin.POPUP, message_destination.BACKGROUND, {active_tab: iTabID, payload: aRenewURLS}, null);
-           
-            // sendMessageToActiveTab(message_type.RENEW, message_origin.POPUP,
-            //      message_destination.CONTENT,   {active_tab: iTabID, payload: aURLS}, null);
 
         }
     });
@@ -291,16 +428,22 @@ function getListings(sSelector, dictSource)
 
 function showContent(sContent)
 {
-    $(sContent).appendTo('#content_container');
+
+    $(TARGET_CONTAINER).empty();
+    outputDebugLog("Appending content to the container: " + TARGET_CONTAINER );
+    $(sContent).appendTo(TARGET_CONTAINER);
 }
 
 function showNoListings()
 {
    
+    outputDebugLog("function showNoListings(): BEGIN");
 
     var sData = "";
     
     sData += "<div><b>No listings found!</b></div>";
+    sData += "<div><p>Only expired listings that were not deleted previously are shown by default. Please note that sometimes the status may show the listings as expired even though it was also deleted afterward.";
+    sData += "<p>You can use the checkbox below to force showing the previously deleted listings</p></p></div>";
 
     sData +="<input type=\"button\" id=\"btnResetEverything\" value=\"Reset Craigslist reposter\"></input>";
     showContent(sData);
@@ -316,10 +459,10 @@ function showNoListings()
 
 }
 
-function processResponse(message)
-{
-    console.log(message);
-}
+// function processResponse(message)
+// {
+//     console.log(message);
+// }
 
 function sendMessageToActiveTabIfValidURL(eMsgType, eMsgOrigin, eMsgDest, sParam, funcCallback, funcCallBackNoValidURL)
 {
@@ -364,9 +507,14 @@ function sendUserToCraigsListAccount()
     });
 }
 
-function sendMessage( eMsgType, eMsgOrg, eMsgDest, sParam, funcCallback)
+function sendMessage( eMsgType, eMsgOrg, eMsgDest, sParam, funcCallback,funcCallBackNoValidURL)
 {
-    chrome.runtime.sendMessage({from: eMsgOrg, to: eMsgDest, type: eMsgType, value: sParam}, funcCallback);
+
+    if(eMsgDest == oCommonDefs.message_destination.BACKGROUND)
+        chrome.runtime.sendMessage({from: eMsgOrg, to: eMsgDest, type: eMsgType, value: sParam}, funcCallback);
+    else if(eMsgDest == oCommonDefs.message_destination.CONTENT )
+        sendMessageToActiveTabIfValidURL(eMsgType, eMsgOrg, eMsgDest, sParam, funcCallback,funcCallBackNoValidURL);
+
 }
 
 function isVariableNotNull(val)
@@ -422,28 +570,18 @@ function sleep(mills)
   return sleepPromise(mills);
 }
 
-
-/* Once the DOM is ready... */
-window.addEventListener('DOMContentLoaded', function () {
-    /* ...query for the active tab... */
-    if (DEBUG == true)
-        console.log("initiating event listener");
-    // chrome.tabs.query({
-    //     active: true,
-    //     currentWindow: true
-    // }, function (tabs) {
-    //     console.log("sending a message from popup to the content script to give us data!");
-    //     /* ...and send a request
-    //      for the DOM info... */
-    //     // chrome.tabs.sendMessage(
-    //     //         tabs[0].id,
-    //     //         { from: 'popup', subject: 'DOMInfo' },
-    //     //         /* ...also specifying a callback to be called
-    //     //          *    from the receiving end (content script) */
-    //     //         setDOMInfo);
+function getListingsFromContent(bInitial, bIncludeDeleted = false)
+{
+    let params = {};
+    let messageType = oCommonDefs.message_type.GET_LISTINGS;
 
 
-    sendMessageToActiveTabIfValidURL(oCommonDefs.message_type.GET_LISTINGS, oCommonDefs.message_origin.POPUP, oCommonDefs.message_destination.CONTENT,
-        "", processListings, showForNoCraiglist);
-   // });
-});
+    if( bInitial)
+       messageType = oCommonDefs.message_type.INITIAL_POPUP_LISTINGS;
+      
+    else if(bIncludeDeleted )
+        messageType = oCommonDefs.message_type.GET_ALL_LISTINGS;
+
+    sendMessage(messageType, oCommonDefs.message_origin.POPUP, oCommonDefs.message_destination.CONTENT,
+        params, processResponse, showForNoCraiglist);
+}

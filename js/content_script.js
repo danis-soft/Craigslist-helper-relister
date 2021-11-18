@@ -1,6 +1,8 @@
 /*REM - This file is part of Craigslist submitter*/
 var DEBUG = true;
 
+const MAXIMUM_LINES_LOG = 50;
+
 /*
 too fast posting error:
 You are posting too rapidly.
@@ -11,13 +13,16 @@ Edit Again
     <button type="submit" name="go" value="Edit Again" class="go">Edit Again</button>
 </div>
 */
-var TOO_FAST_ERROR_DELAY_SECS = "20"; //in seconds
+var TOO_FAST_ERROR_DELAY_SECS = "110"; //in seconds
+var TOO_FAST_ERROR_DELAY_SEC_LIMIT = "360";//in seconds
 
 var oCommonDefs = require("./common_defs.js");
 var oCommonStorage = require("./common_storage.js");
 
+var outputDebugLog = oCommonDefs.outputDebugLog;
+
   
-var sContent = "abc";
+//var sContent = "abc";
 console.log("Craigslist_helper: + running_content_script");
   
 
@@ -41,7 +46,8 @@ console.log("Craigslist_helper: + running_content_script");
    second:  /post.craigslist.org\/.*?s=edit$/,
    third: /post.craigslist.org\/.*?s=preview$/,
    fourth: /post.craigslist.org\/k\/.*/,//confirmation page
-   toofast: /post.craigslist.org\/k\/.*s=postcount$/
+   toofast: /post.craigslist.org\/k\/.*s=postcount$/,
+   undelete: /post.craigslist.org\/manage\/\d+$/
 };
 
 const UI = Object.freeze({
@@ -63,6 +69,8 @@ console.log(appModesRegMatches.first);
 
   var sDocURL = document.URL.trim();
   var gDict = new Object();
+  var g_oExpiredOnly = {};
+  var g_oExpiredAndDeleted = {};
   
   var POSTING_STATUS_TYPE = {
     ACTIVE : "active",
@@ -100,8 +108,10 @@ console.log(appModesRegMatches.first);
       // });
 
       mapActivePosts = firstMode();
+   //   await tooFastError();
 
-    }else if(sDocURL.isMatched(appModesRegMatches.second))
+    }
+    else if(sDocURL.isMatched(appModesRegMatches.second))
     {
       // let val = await chrome.storage.local.get(key, (result)=>
       // {
@@ -129,7 +139,9 @@ console.log(appModesRegMatches.first);
       {
         console.log("Detected and confirmed " + UI.ERRORS.TOO_FAST + " text");
 
-        console.log("Starting to wait");
+        let msg = "Starting to wait.  Current time is: " + new Date().toLocaleString();
+        console.log(msg);
+        persistDebugLog(msg);
 
         tooFastError();
       }
@@ -154,6 +166,9 @@ console.log(appModesRegMatches.first);
             console.log("Found the text.  Detected the fourth mode for sure.");
 
           fourthMode();
+
+         
+
         }
 
         
@@ -162,23 +177,70 @@ console.log(appModesRegMatches.first);
 
   }//ExecuteProgram function
 
-  function tooFastError()
+  async function tooFastError()
   {
-    sleep( TOO_FAST_ERROR_DELAY_SECS*1000).then(function(){
+    // sleep( TOO_FAST_ERROR_DELAY_SECS*1000).then(function(){
+    //   $("form#postingForm").submit();
+    // });
+
+    outputDebugLog("Entering tooFastError function");
+    
+    let iDelaySecs = 1;
+
+    oCommonStorage.SyncStorage.get(oCommonDefs.STORAGE_KEYS.KEY_LAST_ERROR_DELAY_USED).then((result)=>{
+      //var iDelay = await getTooFastErrorDelay();
+
+      if( isVariableNull(result) 
+        || typeof(result) != 'number'
+        || Number.isNaN(result))
+      {
+        result = TOO_FAST_ERROR_DELAY_SECS;
+      }
+      else
+      {
+        result = (result + (TOO_FAST_ERROR_DELAY_SECS / 2)) % TOO_FAST_ERROR_DELAY_SEC_LIMIT;
+      }
+
+      iDelaySecs = Math.floor(result);
+
+      return oCommonStorage.SyncStorage.save(oCommonDefs.STORAGE_KEYS.KEY_LAST_ERROR_DELAY_USED, iDelaySecs);
+
+
+    }).then((result)=>
+    {
+      let msg = "Current time: " + new Date().toLocaleString() + " delay time: " + iDelaySecs  + " secs";      
+
+      console.log(msg);
+      persistDebugLog(msg);
+
+      return sleep((iDelaySecs % TOO_FAST_ERROR_DELAY_SEC_LIMIT) * 1000);
+
+    }).then(()=>{
+
+      let msg = "Sleep expired => Current time: + " + new Date().toLocaleString();
+      outputDebugLog(msg)
+      persistDebugLog(msg);
+      
+     // alert("The timer has sucessfuly expired");
       $("form#postingForm").submit();
+  
     });
 
+
+  
   }
   
+  function getTooFastErrorDelay()
+  {
+    // return oCommonStorage.SyncStorage.get(oCommonDefs.STORAGE_KEYS.KEY_LAST_ERROR_DELAY_USED).then((iDelay)=>{
+    //   if( isVariableNotNull(iDelay))
+        
+    // });
+  }
 
 $(document).ready(()=>
 {
- // SyncStorage.get(KEY_ALL_LISTINGS).then((oData)=>
- // {
-    ExecuteProgram();
- // });
-  
-
+    ExecuteProgram(); 
 });
 
 //we are on the first (acccount) page of craigslist.  We have to decide whether we are parsing the listings or we are continuing 
@@ -229,15 +291,15 @@ async function firstMode()
    
     var oCompletedPosting = null;
     
-    oCompletedPosting = await oCommonStorage.SyncStorage.get(oCommonDefs.KEY_COMPLETED_POSTING);
+    oCompletedPosting = await oCommonStorage.SyncStorage.get(oCommonDefs.STORAGE_KEYS.KEY_COMPLETED_POSTING);
 
     if( isVariableNotNull(oCompletedPosting))
     {
 
-      await oCommonStorage.SyncStorage.remove(oCommonDefs.KEY_COMPLETED_POSTING);
+      await oCommonStorage.SyncStorage.remove(oCommonDefs.STORAGE_KEYS.KEY_COMPLETED_POSTING);
 
 
-      bootbox.alert("The posting of all the listings has been completed.");
+      bootbox.alert("The posting of all the listings has been completed.  You might need to refresh the page to see the posted listings.");
 
     }
 
@@ -254,7 +316,7 @@ function cleanupListings()
   // if( DEBUG)
   //   debugger;
 
-  Promise.allSettled([oCommonStorage.SyncStorage.remove(oCommonDefs.KEY_ALL_LISTINGS), oCommonStorage.SyncStorage.remove(oCommonDefs.KEY_CURRENT_LISTING)]);
+  Promise.allSettled([oCommonStorage.SyncStorage.remove(oCommonDefs.STORAGE_KEYS.KEY_ALL_LISTINGS), oCommonStorage.SyncStorage.remove(oCommonDefs.STORAGE_KEYS.KEY_CURRENT_LISTING)]);
 
 }
 
@@ -289,61 +351,34 @@ function isVariableNotNull(val)
 // }
 
 
-
-
-async function parseListings()
+function parseListingsInternal(aNeverShowURLS, bIncludeDeleted )
 {
   var mapActivePosts = new Map();
   var mapDeletedPosts = new Map();
-  console.log("Detected dictModes.first mode");
+  var mapExpired = new Map();
+ // var mapTempExpired = new Map();
 
 
-  var aNeverShowURLS = null;
+  var sParamValue = null;
 
-  var oData = await getNeverShowListings();
+  console.log("Craigslist_helper: " + "adding parameters to dictionary");
 
-  if( isVariableNotNull(oData) )
-      aNeverShowURLS = oData.data;
+  var sText = "",
+      sParsedText = "",
+      sKeyText = "",
+      sTitleText = "",
+      sURL = "",
+      sPostingStatus = "",
+      sDictKey = "";
+  var iLastIndex = -1;
+  const E_DELETED_TYPE = {
+    REPOST: "repost",
+    UNDELETE: "undelete"
+  } 
 
-  if( sContent != null )
-  {
-
-    var bFound = false;
+  let eDeletedType = E_DELETED_TYPE.REPOST;
 
 
-    /*https://www.expedia.com/Hotel-Search?packageType=fh&c=ee60d470-ee37-4ce7-a390-037744e15422&ttla=CUN&ftla=SFO&tripType=ROUND_TRIP&origin=San+Francisco,+CA,+United+States+of+America+(SFO-San+Francisco+Intl.)&destination=Riviera+Maya&startDate=7/3/2019&endDate=7/11/2019&checkInDate=7/3/2019&checkOutDate=7/11/2019&adults=2&children=1_5&infantsInSeats=0&cabinClass=e&regionId=602901&hotelName=barcelo&lodging=allInclusive&sort=recommended*/
-    // var sDocumentURL = document.URL;
-    // var url = new URL(document.URL)
-    // var oSearchParams = url.searchParams;
-
-    // var arParams = ["startDate", "endDate", "hotelName", "lodging"];
-    //var arParams
-    var sParamValue = null;
-
-    console.log("Craigslist_helper: " + "adding parameters to dictionary");
-
-    var sText = "";
-    var mapExpired = new Map();
-    // gDict = mapExpired;
-    var sParsedText = "";
-    var sKeyText = "";
-    var sURL = "";
-    var sPostingStatus = "";
-
-    var sDictKey = "";
-
-    var iLastIndex = -1;
-
-/*
-$("tr.posting-row").each(function(){
-console.log("==================");
-console.log("" + $(this).children("td.status").hasClass("active"))
-  console.log("" + $(this).children("td.status").text().trim());
-console.log("" + $(this).children("td.status").text().trim().toLowerCase().search("active"));
-
-console.log("==================");
-});
-*/
   $("tr.posting-row").each(function(){
 
     iLastIndex = -1;
@@ -363,13 +398,18 @@ console.log("==================");
     else
       sKeyText = sParsedText;
 
+    sTitle = sKeyText;
+
+    //added new line
+    sKeyText = escapeQuote(sKeyText);
+
   //  sKeyText = (iLastIndex > 0) ? sParsedText.substr(0, iLastIndex) :  sParsedText;//remove price
     
     console.log("parsed text: " + sParsedText);
-    console.log("key text: " + sKeyText);
+    outputDebugLog("key text: " + sKeyText);
     
 
-    console.log("" + $(this).children("td.status").text().trim().toLowerCase().search("active"));
+    outputDebugLog("" + $(this).children("td.status").text().trim().toLowerCase().search("active"));
     sPostingStatus =  $(this).children("td.status").text().trim().toLowerCase();//.search("active")
 
     if(sPostingStatus.isMatched(POSTING_STATUS_TYPE.ACTIVE) )
@@ -382,8 +422,35 @@ console.log("==================");
     }
     else if(sPostingStatus.isMatched(POSTING_STATUS_TYPE.DELETED)  )
     {
-      if( mapDeletedPosts.has(sKeyText) == false)
-        mapDeletedPosts.set(sKeyText, sParsedText);
+      sURL = $(this).children("td.buttons").find("form.manage.repost").attr("action");
+
+
+      /*
+      Your posting can be seen at sfbay.craigslist.org/sby/for/d/san-jose-hamster-ball-75-inches/7402360637.html.
+
+
+      */
+      // if (isVariableNull(sURL) ||  sURL.length == 0)
+      // {
+      //   sURL = $(this).children("td.buttons").find("form.manage.undelete").attr("action");
+      //   var sCrypt = $(this).children("td.buttons").find("form.manage.undelete").children("input[name='crypt']").attr("value");
+      //   sURL+= "?action=undelete&crypt=" + sCrypt;
+
+      //   eDeletedType = E_DELETED_TYPE.UNDELETE;
+      // }
+      // else
+       {
+         eDeletedType = E_DELETED_TYPE.REPOST;
+         sURL+= "?action=repost";
+       }
+
+      outputDebugLog("Found deleted");
+      outputDebugLog("raw text: " + sText);
+      outputDebugLog($(this).children("td.postingID.deleted").innerText);
+      outputDebugLog("URL: " + sURL);
+
+      if( sURL.length > 0 && mapDeletedPosts.has(sKeyText) == false)
+        mapDeletedPosts.set(sKeyText, {title: sParsedText, repost_url: sURL, title_no_price: sTitle, type:eDeletedType});
     }
     else if(sPostingStatus.isMatched(POSTING_STATUS_TYPE.EXPIRED)  )
     {
@@ -391,57 +458,282 @@ console.log("==================");
       sURL = $(this).children("td.buttons.expired").find("form.manage.display").attr("action");
       sURL+= "?action=repost";
 
+      outputDebugLog("Found expired");
+      outputDebugLog("raw text: " + sText);
+
+      outputDebugLog("URL: " + sURL);
 
       
-      //sText = $(this).text().text().trim();
-      console.log("raw text: " + sText);
-      console.log("URL: " + sURL);
-
-      
-      
-      
-      
-      console.log("==============================================");
-      console.log("");
+      outputDebugLog("==============================================");
+      outputDebugLog("");
     
+      sDictKey = escapeQuote(sParsedText);
+    
+     // if( mapActivePosts.has(sKeyText) == false )
+        // && mapDeletedPosts.has(sKeyText) == false
+        // && !(sDictKey in gDict) )
+      {
+  
+          if(  sURL.length > 0 && NeverShowURLS == null || aNeverShowURLS.find(data=>(data.repost_url === sURL || data.title_no_price === sTitle)) === undefined) 
+            mapExpired.set(sKeyText, {title: sParsedText, repost_url: sURL, title_no_price: sTitle});
+       //     gDict[sDictKey] = {"title": sParsedText, "repost_url":sURL, "title_no_price": sKeyText};
+      }
+
     }
-
-    sDictKey = escapeQuote(sParsedText);
     
-    if( mapActivePosts.has(sKeyText) == false
-      && mapDeletedPosts.has(sKeyText) == false
-      && !(sDictKey in gDict) )
-    {
+  });//for each table row $("tr.posting-row").each
 
-        if( aNeverShowURLS == null || aNeverShowURLS.find(data=>(data.repost_url === sURL || data.title_no_price === sKeyText)) === undefined) 
-          gDict[sDictKey] = {"title": sParsedText, "repost_url":sURL, "title_no_price": sKeyText};
-    }
-
-    
-    
+  mapDeletedPosts.forEach((value, key)=>{
+    if( !mapActivePosts.has(key))
+      g_oExpiredAndDeleted[key] = value;
   });
 
-    console.log("");
-    console.log("Printing out mapExpired");
-    //console.log(mapExpired);
-    //gDict = mapExpired;
-    console.log(gDict);
-    console.log("Printing out mapActive");
-    console.log(mapActivePosts);
-    console.log(document.URL);
+  mapExpired.forEach((value, key)=>{
+    if( !mapActivePosts.has(key))
+    {
+      g_oExpiredAndDeleted[key] = value;
+      g_oExpiredOnly[key] = value;
+    }
+  });
 
 
-
-    console.log("================================");
-    console.log("================================");
-
-    console.log("================================");
-    console.log("================================");
+  console.log("");
+  console.log("Printing out mapExpired");
+  console.log(mapExpired);
 
 
-    return mapActivePosts;
-  }
+  console.log("Printing out mapDeletedPosts");
+  console.log(mapDeletedPosts);
+  console.log("Printing out mapActive");
+  console.log(mapActivePosts);
+
+
+  return mapExpired;
+}//parseListings function
+
+
+function persistDebugLog(msg)
+{
+  if (!oCommonDefs.isProduction()) 
+  {
+
+    oCommonStorage.SyncStorage.get(oCommonDefs.STORAGE_KEYS.LOG_ROLLING).then((data)=>
+    {
+      if( isVariableNotNull(data) 
+        && isVariableNotNull(data.log) 
+        && data.log.length > MAXIMUM_LINES_LOG  )
+        data.log.shift();
+
+      
+      if( isVariableNull(data))
+      {
+        data = {log:[]};
+      }
+
+      data.log.push(msg);
+
+      oCommonStorage.SyncStorage.save(oCommonDefs.STORAGE_KEYS.LOG_ROLLING, data).then((result)=>{
+        console.log("Saving to persistent storage under the key of " + oCommonDefs.STORAGE_KEYS.LOG_ROLLING);
+        console.log(result);
+      });
+
+
+    });
+  }//is debug environment
+
+  outputDebugLog(msg);
 }
+
+async function parseListings(bIncludeDeleted = false)
+{
+
+  var mapActivePosts = new Map();
+  var mapDeletedPosts = new Map();
+  var mapPostsToShow = new Map();
+
+  console.log("Detected dictModes.first mode");
+
+  var aNeverShowURLS = null;
+
+  var oData = await getNeverShowListings();
+
+  if( isVariableNotNull(oData) )
+      aNeverShowURLS = oData.data;
+
+  parseListingsInternal(aNeverShowURLS, bIncludeDeleted);
+
+
+
+
+  //gDict = mapPostsToShow;
+  
+  console.log(document.URL);
+
+  console.log("================================");
+  console.log("================================");
+
+  console.log("================================");
+  console.log("================================");
+  return gDict;
+
+}
+
+
+
+// async function parseListings()
+// {
+//   var mapActivePosts = new Map();
+//   var mapDeletedPosts = new Map();
+//   console.log("Detected dictModes.first mode");
+
+
+//   var aNeverShowURLS = null;
+
+//   var oData = await getNeverShowListings();
+
+//   if( isVariableNotNull(oData) )
+//       aNeverShowURLS = oData.data;
+
+//   if( sContent != null )
+//   {
+
+//     var bFound = false;
+
+
+//     /*https://www.expedia.com/Hotel-Search?packageType=fh&c=ee60d470-ee37-4ce7-a390-037744e15422&ttla=CUN&ftla=SFO&tripType=ROUND_TRIP&origin=San+Francisco,+CA,+United+States+of+America+(SFO-San+Francisco+Intl.)&destination=Riviera+Maya&startDate=7/3/2019&endDate=7/11/2019&checkInDate=7/3/2019&checkOutDate=7/11/2019&adults=2&children=1_5&infantsInSeats=0&cabinClass=e&regionId=602901&hotelName=barcelo&lodging=allInclusive&sort=recommended*/
+//     // var sDocumentURL = document.URL;
+//     // var url = new URL(document.URL)
+//     // var oSearchParams = url.searchParams;
+
+//     // var arParams = ["startDate", "endDate", "hotelName", "lodging"];
+//     //var arParams
+//     var sParamValue = null;
+
+//     console.log("Craigslist_helper: " + "adding parameters to dictionary");
+
+//     var sText = "";
+//    // var mapExpired = new Map();
+//     // gDict = mapExpired;
+//     var sParsedText = "";
+//     var sKeyText = "";
+//     var sURL = "";
+//     var sPostingStatus = "";
+
+//     var sDictKey = "";
+
+//     var iLastIndex = -1;
+
+// /*
+// $("tr.posting-row").each(function(){
+// console.log("==================");
+// console.log("" + $(this).children("td.status").hasClass("active"))
+//   console.log("" + $(this).children("td.status").text().trim());
+// console.log("" + $(this).children("td.status").text().trim().toLowerCase().search("active"));
+
+// console.log("==================");
+// });
+// */
+//   $("tr.posting-row").each(function(){
+
+//     iLastIndex = -1;
+
+//     sText = $(this).children("td.title").text().trim();
+
+//     sParsedText = sText.replace(/[\r\n]/gm,"").replace(/[ ]{2,}/g, " ");//remove newline characters and extra white spaces
+    
+//     iLastIndex = sParsedText.lastIndexOf("-");
+
+//     //let's try to see if the - is followed by a valid price.  If not then ignore the - character
+//     if( iLastIndex > 0 //we found '-' character
+//       && sParsedText.substr(iLastIndex, sParsedText.length).isMatched(/-[ ]*\$[ ]*\d{1,6}$/))//we found price after -
+//     {
+//       sKeyText = sParsedText.substr(0, iLastIndex);
+//     }
+//     else
+//       sKeyText = sParsedText;
+
+//   //  sKeyText = (iLastIndex > 0) ? sParsedText.substr(0, iLastIndex) :  sParsedText;//remove price
+    
+//     console.log("parsed text: " + sParsedText);
+//     console.log("key text: " + sKeyText);
+    
+
+//     console.log("" + $(this).children("td.status").text().trim().toLowerCase().search("active"));
+//     sPostingStatus =  $(this).children("td.status").text().trim().toLowerCase();//.search("active")
+
+//     if(sPostingStatus.isMatched(POSTING_STATUS_TYPE.ACTIVE) )
+//     {
+//       //console.log
+//      // sParsedText = sText.replace(/[\r\n]/gm,"").replace(/[ ]{2,}/g, " ");//remove newline characters and extra white spaces
+      
+//       if( mapActivePosts.has(sKeyText) == false)
+//         mapActivePosts.set(sKeyText, sParsedText);
+//     }
+//     else if(sPostingStatus.isMatched(POSTING_STATUS_TYPE.DELETED)  )
+//     {
+//       if( mapDeletedPosts.has(sKeyText) == false)
+//         mapDeletedPosts.set(sKeyText, sParsedText);
+//     }
+//     else if(sPostingStatus.isMatched(POSTING_STATUS_TYPE.EXPIRED)  )
+//     {
+//       //sText = $(this).children("td.title.expired").text().trim();
+//       sURL = $(this).children("td.buttons.expired").find("form.manage.display").attr("action");
+//       sURL+= "?action=repost";
+
+
+      
+//       //sText = $(this).text().text().trim();
+//       console.log("raw text: " + sText);
+//       console.log("URL: " + sURL);
+
+      
+      
+      
+      
+//       console.log("==============================================");
+//       console.log("");
+    
+//     }
+
+//     sDictKey = escapeQuote(sParsedText);
+    
+//     if( mapActivePosts.has(sKeyText) == false
+//       && mapDeletedPosts.has(sKeyText) == false
+//       && !(sDictKey in gDict) )
+//     {
+
+//         if( aNeverShowURLS == null || aNeverShowURLS.find(data=>(data.repost_url === sURL || data.title_no_price === sKeyText)) === undefined) 
+//           gDict[sDictKey] = {"title": sParsedText, "repost_url":sURL, "title_no_price": sKeyText};
+//     }
+
+    
+    
+//   });
+
+//     console.log("");
+//    // console.log("Printing out mapExpired");
+//     //console.log(mapExpired);
+//     //gDict = mapExpired;
+//     console.log(gDict);
+
+//     console.log("Printing out mapDeletedPosts");
+//     console.log(mapDeletedPosts);
+//     console.log("Printing out mapActive");
+//     console.log(mapActivePosts);
+//     console.log(document.URL);
+
+
+
+//     console.log("================================");
+//     console.log("================================");
+
+//     console.log("================================");
+//     console.log("================================");
+
+
+//     return mapActivePosts;
+//   }
+// }
 
 function secondMode()
 {
@@ -466,6 +758,17 @@ function thirdMode()
     }
   });
 }
+async function undeleteSuccess()
+{
+  let oAllListings = null;
+  let oCurrentListing = null;
+  
+  
+  oAllListings = await getAllListings();
+  oCurrentListing = await getCurrentlyProcessingListing();
+
+
+}
 
 //final mode - going to the account main page after this
 async function fourthMode()
@@ -482,7 +785,8 @@ async function fourthMode()
   var bNotFound = true;
   //await SyncStorage.remove(KEY_CURRENT_LISTING);
 
-
+  //remove last error delay used
+  await oCommonStorage.SyncStorage.remove(oCommonDefs.STORAGE_KEYS.KEY_LAST_ERROR_DELAY_USED);
 
   if(   isVariableNotNull(oAllListings) 
         && isVariableNotNull(oCurrentListing))
@@ -500,12 +804,12 @@ async function fourthMode()
 
         console.log("Saving KEY_CURRENT_LISTING entry");
 
-        await oCommonStorage.SyncStorage.save(oCommonDefs.KEY_CURRENT_LISTING, oCurrentListing);
+        await oCommonStorage.SyncStorage.save(oCommonDefs.STORAGE_KEYS.KEY_CURRENT_LISTING, oCurrentListing);
       }
       else
       {
         oCurrentListing.index--;
-        await oCommonStorage.SyncStorage.save(oCommonDefs.KEY_COMPLETED_POSTING, oCurrentListing);
+        await oCommonStorage.SyncStorage.save(oCommonDefs.STORAGE_KEYS.KEY_COMPLETED_POSTING, oCurrentListing);
 
       }
     
@@ -527,7 +831,7 @@ async function fourthMode()
     cleanupListings();
   }
 
-  await sleep(2000);
+  await sleep(3000);
   changeURL("https://accounts.craigslist.org/login/home");
 
 }
@@ -559,7 +863,7 @@ async function getRepostTimeDelay()
        (MAX_MILLS * (numberOfRepostTries*0.1))); 
     }
 
-    await oCommonStorage.SyncStorage.save(oCommonDefs.KEY_CURRENT_LISTING, oData);
+    await oCommonStorage.SyncStorage.save(oCommonDefs.STORAGE_KEYS.KEY_CURRENT_LISTING, oData);
   }
 
 
@@ -612,7 +916,7 @@ async function getCurrentlyProcessingListing()
 {
   var oData = null;
 
-  oData = await oCommonStorage.SyncStorage.get(oCommonDefs.KEY_CURRENT_LISTING);
+  oData = await oCommonStorage.SyncStorage.get(oCommonDefs.STORAGE_KEYS.KEY_CURRENT_LISTING);
 
   return oData;
 
@@ -622,18 +926,18 @@ async function getAllListings()
 {
   var oData = null;
 
-  oData = await oCommonStorage.SyncStorage.get(oCommonDefs.KEY_ALL_LISTINGS);
+  oData = await oCommonStorage.SyncStorage.get(oCommonDefs.STORAGE_KEYS.KEY_ALL_LISTINGS);
+ //oData = await getStoragePromise("craigslist_relister_renew_listings");
 
   return oData;
 
 }
 
-
 async function getNeverShowListings()
 {
     var oData = null;
   
-    oData = await oCommonStorage.SyncStorage.get(oCommonDefs.KEY_NEVERSHOW_LISTINGS);
+    oData = await oCommonStorage.SyncStorage.get(oCommonDefs.STORAGE_KEYS.KEY_NEVERSHOW_LISTINGS);
   
     return oData;
 }
@@ -678,6 +982,9 @@ function compareStrings(str1, str2)
   // Listen for messages from the popup
 chrome.runtime.onMessage.addListener(function (msg, sender, response) {
   console.log("Received message");
+
+  var res = {params: {}, listings:{}};
+
   // First, validate the message's structure
   if (msg.from ===  oCommonDefs.message_origin.POPUP 
     && msg.to === oCommonDefs.message_destination.CONTENT)
@@ -685,31 +992,63 @@ chrome.runtime.onMessage.addListener(function (msg, sender, response) {
     
     console.log("Received message from popup");
 
-    if(msg.type === oCommonDefs.message_type.GET_LISTINGS )
+    if( msg.type === oCommonDefs.message_type.INITIAL_POPUP_LISTINGS)
     {
-      // Collect the necessary data
-      // (For your specific requirements `document.querySelectorAll(...)`
-      //  should be equivalent to jquery's `$(...)`)
-      // var domInfo = {
-      //   // total: document.querySelectorAll('*').length,
-      //   // inputs: document.querySelectorAll('input').length,
-      //   // buttons: document.querySelectorAll('button').length
-      //     startDate: gDict["startDate"],
-      //     stopDate: gDict["endDate"],
-      //     hotelName: gDict["hotelName"],
-      //     FULL_URL: gDict["FULL_URL"]
-      // };
-      // var test = new Object();
+      oCommonStorage.SyncStorage.get(oCommonDefs.STORAGE_KEYS.KEY_PARAMS).then((data)=>
+      {
+        if( isVariableNull(data))
+        {
+          data = {};
+          data[oCommonDefs.SAVED_PARAMS.SHOW_DELETED_LISTINGS] = false;
+        }
 
-    //   test["test"] = 1;
-    //   test["test35234"] = 2;
-
+        if( data[oCommonDefs.SAVED_PARAMS.SHOW_DELETED_LISTINGS])
+        {
+          res.params[oCommonDefs.SAVED_PARAMS.SHOW_DELETED_LISTINGS] = true;
+          res.listings  = g_oExpiredAndDeleted;
+        }
+        else
+        {
+          res.params[oCommonDefs.SAVED_PARAMS.SHOW_DELETED_LISTINGS] = false;
+          res.listings  = g_oExpiredOnly;
+        }
+        
+        response(res);
+      });
+    }
+    else if(msg.type === oCommonDefs.message_type.GET_LISTINGS )
+    {
       // Directly respond to the sender (popup),
       // through the specified callback */
     // response(mapExpired);
       console.log("Received request or data from popup.  Sending in data");
       console.log(gDict);
-      response(gDict);
+     
+      oCommonStorage.SyncStorage.save(oCommonDefs.STORAGE_KEYS.KEY_PARAMS, msg.value).then((message)=>{
+        res.params = msg.value;
+        res.listings  = g_oExpiredOnly;
+
+        outputDebugLog(message);
+        response(res);
+      });
+    
+
+    }
+    if(msg.type === oCommonDefs.message_type.GET_ALL_LISTINGS )
+    {
+      // Directly respond to the sender (popup),
+      // through the specified callback */
+
+      // parseListings(true).then((data)=>{
+      //   console.log("Received request or data from popup.  Sending in data");
+      //   console.log(data);
+      //   response(data);
+      // });
+      oCommonStorage.SyncStorage.save(oCommonDefs.STORAGE_KEYS.KEY_PARAMS, msg.value).then((message)=>{
+        res.params = msg.value;
+        res.listings  = g_oExpiredAndDeleted;
+        response(res);
+      });
 
     }
     else if( msg.type === oCommonDefs.message_type.RENEW)
@@ -731,6 +1070,7 @@ chrome.runtime.onMessage.addListener(function (msg, sender, response) {
     }
   }
 
+    return true;
 });
 
 function reprocessListings(payload)
@@ -743,8 +1083,8 @@ function reprocessListings(payload)
    
       payload.aNeverShowURLS.foreach((el)=>{
       
-      if(DEBUG == true)
-        console.log("Deleting from gDict by key: " + el);
+        if(DEBUG == true)
+          console.log("Deleting from gDict by key: " + el);
 
         //gdict is keyed by URL's
         delete gDict[el];
@@ -756,9 +1096,6 @@ function isValidListing(iMills)
 {
   let dateCurr = null;
   let hoursElapsed = null;
-
- // var oData = getCurrentlyProcessingListing();
-
 
   dateCurr = Date.now();
   hoursElapsed =  Math.floor((dateCurr - iMills)/1000)/3600;
@@ -819,6 +1156,8 @@ async function renewListings(oAllListings = null, oCurrentListing = null)
     
     let iIndex = 0;
 
+    await oCommonStorage.SyncStorage.remove(oCommonDefs.STORAGE_KEYS.KEY_LAST_ERROR_DELAY_USED);
+
     //if oCurrentListing does not exist
     if( isVariableNotNull(oCurrentListing)== false)
     {
@@ -828,6 +1167,7 @@ async function renewListings(oAllListings = null, oCurrentListing = null)
 
      if( isVariableNotNull(oAllListings.data[oCurrentListing.index]) 
         && isVariableNotNull(oCurrentListing.data) 
+        && oCurrentListing.data.repost_url.length > 0
         && oAllListings.data[oCurrentListing.index].repost_url == oCurrentListing.data.repost_url)
       //var el = oData.data.pop();
      // oData.data.forEach((el)=>
@@ -842,7 +1182,7 @@ async function renewListings(oAllListings = null, oCurrentListing = null)
         // if(DEBUG )
         //   debugger;
 
-        await oCommonStorage.SyncStorage.save(oCommonDefs.KEY_CURRENT_LISTING, oCurrentListing);
+        await oCommonStorage.SyncStorage.save(oCommonDefs.STORAGE_KEYS.KEY_CURRENT_LISTING, oCurrentListing);
 
        // alert("About to change URL.  Index is : " + oCurrentListing.index);
         changeURL(sRepostURL);
@@ -850,7 +1190,7 @@ async function renewListings(oAllListings = null, oCurrentListing = null)
       }//if URLS match
       else
       {
-        console.log("Error URLS do not match.  Cleaning out the Keys for current listing and all the listings");
+        console.log("Error:  URLS do not match.  Cleaning out the Keys for current listing and all the listings");
         cleanupListings();
         //debugger;
       }

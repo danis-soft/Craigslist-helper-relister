@@ -11,7 +11,8 @@ module.exports = {
       popup: '/js/popup.js'
   },
   mode: 'development',
-  devtool: "inline-source-map",
+ /// devtool: "inline-source-map",
+  devtool: 'cheap-module-source-map',
   output: {
 	path: `${__dirname}/webpack_dist`,
     filename: '[name].js',
